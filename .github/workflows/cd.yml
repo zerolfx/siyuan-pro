@@ -1,13 +1,14 @@
 name: CD For SiYuan
 
 on:
-  push:
-    tags:
-      - '*-dev*'
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to build'
+        required: true
+        default: 'main'
 
 jobs:
-
   create_release:
     name: Create Release
     runs-on: ubuntu-latest
@@ -18,19 +19,22 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          repository: siyuan-note/siyuan
+          ref: ${{ github.event.inputs.ref }}
 
       - name: Setup Python
         uses: actions/setup-python@v3
         with:
           python-version: "3.10"
       - run: pip install PyGithub
-      
+
       - id: thislatestR
         uses: pozetroninc/github-action-get-latest-release@master
         with:
           # owner: siyuan-note
           # repo: siyuan
-          repository: ${{ github.repository }}
+          repository: siyuan-note/siyuan
           token: ${{ secrets.GITHUB_TOKEN }}
           excludes: prerelease, draft
 
@@ -57,12 +61,13 @@ jobs:
         id: create_release
         uses: ncipollo/release-action@v1
         with:
-          name: ${{ steps.release_info.outputs.release_version }}
-          tag: ${{ github.ref }}
+          name: ${{ github.event.inputs.ref }}
+          tag: ${{ github.event.inputs.ref }}
           body: ${{ env.release_body }}
           draft: false
           prerelease: true
           token: ${{ secrets.GITHUB_TOKEN }}
+
 
   build:
     runs-on: ${{ matrix.config.os }}
@@ -111,7 +116,18 @@ jobs:
     steps:
     - uses: actions/checkout@v3
       with:
-        path: ${{ github.workspace }}/go/src/github.com/siyuan-note/siyuan
+        repository: siyuan-note/siyuan
+        path: go/src/github.com/siyuan-note/siyuan
+        ref: ${{ github.event.inputs.ref }}
+
+    - uses: actions/checkout@v3
+      with:
+        path: patch
+
+    - name: Apply Patch
+      run: git apply --verbose --ignore-space-change --ignore-whitespace ../../../../../patch/*.patch
+      shell: bash
+      working-directory: go/src/github.com/siyuan-note/siyuan
 
     - name: Set up MingGW
       uses: msys2/setup-msys2@v2
@@ -200,6 +216,11 @@ jobs:
     - name: Building Electron
       run: pnpm run ${{ matrix.config.electron_args }}
       working-directory: ${{ github.workspace }}/go/src/github.com/siyuan-note/siyuan/app
+
+    - uses: actions/upload-artifact@v3
+      with:
+        name: siyuan-${{ needs.create_release.outputs.release_version }}-${{ matrix.config.suffix }}
+        path: ${{ github.workspace }}/go/src/github.com/siyuan-note/siyuan/app/build/siyuan-${{ needs.create_release.outputs.version }}-${{ matrix.config.suffix }}
 
     - name: Upload Release
       uses: actions/upload-release-asset@v1
